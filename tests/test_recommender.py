@@ -1,4 +1,17 @@
-from src.recommender import Song, UserProfile, Recommender
+from pathlib import Path
+
+import pytest
+
+from src.recommender import (
+    ProfileValidationError,
+    RecommendationAssistant,
+    Recommender,
+    Song,
+    SongRetriever,
+    UserProfile,
+    load_songs,
+)
+
 
 def make_small_recommender() -> Recommender:
     songs = [
@@ -17,7 +30,7 @@ def make_small_recommender() -> Recommender:
         Song(
             id=2,
             title="Chill Lofi Loop",
-            artist="Test Artist",
+            artist="Second Artist",
             genre="lofi",
             mood="chill",
             energy=0.4,
@@ -31,31 +44,55 @@ def make_small_recommender() -> Recommender:
 
 
 def test_recommend_returns_songs_sorted_by_score():
-    user = UserProfile(
-        favorite_genre="pop",
-        favorite_mood="happy",
-        target_energy=0.8,
-        likes_acoustic=False,
-    )
-    rec = make_small_recommender()
-    results = rec.recommend(user, k=2)
+    user = UserProfile("pop", "happy", 0.8, False)
+    results = make_small_recommender().recommend(user, k=2)
 
     assert len(results) == 2
-    # Starter expectation: the pop, happy, high energy song should score higher
     assert results[0].genre == "pop"
     assert results[0].mood == "happy"
 
 
 def test_explain_recommendation_returns_non_empty_string():
-    user = UserProfile(
-        favorite_genre="pop",
-        favorite_mood="happy",
-        target_energy=0.8,
-        likes_acoustic=False,
-    )
-    rec = make_small_recommender()
-    song = rec.songs[0]
+    user = UserProfile("pop", "happy", 0.8, False)
+    recommender = make_small_recommender()
 
-    explanation = rec.explain_recommendation(user, song)
+    explanation = recommender.explain_recommendation(user, recommender.songs[0])
+
     assert isinstance(explanation, str)
-    assert explanation.strip() != ""
+    assert "genre matches pop" in explanation
+
+
+def test_retriever_returns_a_bounded_candidate_set():
+    user = UserProfile("pop", "happy", 0.8, False)
+    songs = make_small_recommender().songs
+
+    candidates = SongRetriever(songs).retrieve(user, limit=1)
+
+    assert [song.title for song in candidates] == ["Test Pop Track"]
+
+
+def test_assistant_audits_a_catalog_gap():
+    assistant = RecommendationAssistant(make_small_recommender().songs)
+    response = assistant.recommend(UserProfile("classical", "nostalgic", 0.5, True), k=2)
+
+    assert response.confidence < 0.5
+    assert any("No exact genre or mood match" in note for note in response.audit_notes)
+
+
+def test_invalid_energy_is_rejected_before_retrieval():
+    assistant = RecommendationAssistant(make_small_recommender().songs)
+
+    with pytest.raises(ProfileValidationError, match="between 0 and 1"):
+        assistant.recommend(UserProfile("pop", "happy", 1.2, False))
+
+
+def test_load_songs_rejects_out_of_range_catalog_values(tmp_path: Path):
+    catalog = tmp_path / "bad_songs.csv"
+    catalog.write_text(
+        "id,title,artist,genre,mood,energy,tempo_bpm,valence,danceability,acousticness\n"
+        "1,Bad,Artist,pop,happy,1.2,120,0.5,0.5,0.5\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="energy"):
+        load_songs(catalog)

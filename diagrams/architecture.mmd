@@ -1,0 +1,12 @@
+flowchart LR
+    listener["Listener profile"] --> validator["Input validator"]
+    catalog["data/songs.csv"] --> loader["CSV loader and data checks"]
+    validator --> retriever["Song retriever"]
+    loader --> retriever
+    retriever --> ranker["Transparent ranker and explanations"]
+    ranker --> audit["Diversity and confidence audit"]
+    audit --> output["Grounded recommendations and catalog notes"]
+    audit -. "events and errors" .-> logs["logs/recommender.log"]
+    evaluator["Evaluation cases"] --> checks["Automated reliability checks"]
+    checks -. "regression feedback" .-> audit
+    human["Human reviewer"] -. "reviews weights, data, and results" .-> evaluator
